@@ -48,6 +48,10 @@ enum Options {
     /// [in] Dump realtime MIDI Tuning Standard messages
     #[structopt(name = "mts")]
     Mts(MtsOptions),
+
+    /// Evaluate an expression
+    #[structopt(name = "eval")]
+    Eval(EvalOptions),
 }
 
 #[derive(StructOpt)]
@@ -110,6 +114,12 @@ struct MtsOptions {
     /// Tuning program that should be affected
     #[structopt(short = "p", default_value = "0")]
     tuning_program: u8,
+}
+
+#[derive(StructOpt)]
+struct EvalOptions {
+    /// Expression to evaluate
+    expression: String,
 }
 
 #[derive(StructOpt)]
@@ -226,6 +236,10 @@ fn try_main() -> io::Result<()> {
             device_id,
             tuning_program,
         }) => dump_mts(device_id, tuning_program),
+        Options::Eval(EvalOptions { expression }) => {
+            execute_eval_command(expression);
+            Ok(())
+        }
     }
 }
 
@@ -313,6 +327,10 @@ fn dump_scale(limit: u16) -> io::Result<()> {
         )?;
     }
     Ok(())
+}
+
+fn execute_eval_command(expression: String) {
+    println!("{}", expression.parse::<Ratio>().unwrap());
 }
 
 fn diff_scale(key_map_params: KeyMapParams, limit: u16, command: ScaleCommand) -> io::Result<()> {
