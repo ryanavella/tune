@@ -3,6 +3,7 @@ mod edo;
 
 use dto::{ScaleDto, ScaleItemDto, TuneDto};
 use io::ErrorKind;
+use std::convert::TryFrom;
 use std::fmt::Display;
 use std::fs::File;
 use std::io;
@@ -246,6 +247,7 @@ fn execute_scale_command(key_map_params: KeyMapParams, command: ScaleCommand) ->
     let key_map = create_key_map(key_map_params);
     let tuning = (&create_scale(command), &key_map);
 
+    //        size: scale.size(),
     let items = scale_iter(tuning)
         .map(|scale_item| ScaleItemDto {
             key_midi_number: scale_item.piano_key.midi_number(),
@@ -291,6 +293,7 @@ fn dump_scale(limit: u16) -> io::Result<()> {
         write: &mut stdout.lock(),
         root_key: PianoKey::from_midi_number(in_scale.root_key_midi_number),
         root_pitch: Pitch::from_hz(in_scale.root_pitch_in_hz),
+        size: 1,
         limit,
     };
 
@@ -323,6 +326,7 @@ fn diff_scale(key_map_params: KeyMapParams, limit: u16, command: ScaleCommand) -
         write: &mut stdout.lock(),
         root_pitch: Pitch::from_hz(in_scale.root_pitch_in_hz),
         root_key: PianoKey::from_midi_number(in_scale.root_key_midi_number),
+        size: 1,
         limit,
     };
 
@@ -337,7 +341,7 @@ fn diff_scale(key_map_params: KeyMapParams, limit: u16, command: ScaleCommand) -
             PianoKey::from_midi_number(item.key_midi_number),
             pitch,
             approximation.approx_value.midi_number(),
-            format!("IDX {:>5}", index),
+            friendly_name(index, scale.size()),
             approximation.deviation,
         )?;
     }
@@ -348,6 +352,7 @@ struct ScaleTablePrinter<W> {
     write: W,
     root_key: PianoKey,
     root_pitch: Pitch,
+    size: usize,
     limit: u16,
 }
 
@@ -383,11 +388,11 @@ impl<W: Write> ScaleTablePrinter<W> {
 
         writeln!(
             self.write,
-            "{source_midi:>3} | IDX {source_index:>4} | \
+            "{source_midi:>3} | {source_index} | \
              {numer:>2}/{denom:<2} {fract_deviation:>+4.0}¢ {fract_octaves:>+3}o ‖ \
              {pitch:>11.3} Hz ‖ {target_midi:>4} | {target_index} | {deviation:>+8.3}¢",
             source_midi = source_key.midi_number(),
-            source_index = source_index,
+            source_index = friendly_name(source_index, self.size),
             pitch = pitch.as_hz(),
             numer = nearest_fraction.numer,
             denom = nearest_fraction.denom,
@@ -518,6 +523,16 @@ fn create_key_map(key_map_params: KeyMapParams) -> Kbm {
             .map(i32::from)
             .map(PianoKey::from_midi_number)
             .unwrap_or_else(|| key_map_params.ref_pitch.key()),
+    }
+}
+
+fn friendly_name(index: i32, period: usize) -> String {
+    if period > 1 {
+        let num_periods = index.div_euclid(i32::try_from(period).unwrap());
+        let index_in_period = index.rem_euclid(i32::try_from(period).unwrap());
+        format!("#{} {}", index_in_period, num_periods)
+    } else {
+        format!("IDX {:>4}", index)
     }
 }
 

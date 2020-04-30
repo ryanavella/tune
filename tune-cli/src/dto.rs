@@ -9,6 +9,7 @@ pub enum TuneDto {
 pub struct ScaleDto {
     pub root_key_midi_number: i32,
     pub root_pitch_in_hz: f64,
+    //pub size: Option<usize>,
     pub items: Vec<ScaleItemDto>,
 }
 
