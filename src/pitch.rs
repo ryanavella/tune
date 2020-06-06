@@ -193,7 +193,7 @@ impl FromStr for ReferencePitch {
     fn from_str(s: &str) -> Result<Self, Self::Err> {
         if let [note, pitch] = parse::split_balanced(s, '@').as_slice() {
             let note_number = note
-                .parse()
+                .parse::<i32>()
                 .map_err(|_| format!("Invalid note '{}': Must be an integer", note))?;
             let pitch: Pitch = pitch
                 .parse()

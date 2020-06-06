@@ -18,7 +18,11 @@ use tune::scala;
 use tune::scala::Kbm;
 use tune::scala::Scl;
 use tune::tuning::Tuning;
-
+use tune::{
+    note::NoteLetter,
+    temperament::EqualTemperament,
+    tuning::{ConcertPitch, Tuning},
+};
 #[derive(StructOpt)]
 enum Options {
     /// Create a scale file
@@ -334,6 +338,8 @@ fn execute_eval_command(expression: String) {
 }
 
 fn diff_scale(key_map_params: KeyMapParams, limit: u16, command: ScaleCommand) -> io::Result<()> {
+    let temperament = find_temperament(&command);
+
     let in_scale = read_dump_dto()?;
 
     let key_map = create_key_map(key_map_params);
@@ -353,17 +359,50 @@ fn diff_scale(key_map_params: KeyMapParams, limit: u16, command: ScaleCommand) -
         let pitch = Pitch::from_hz(item.pitch_in_hz);
 
         let approximation = tuning.find_by_pitch(pitch);
-        let index = key_map.root_key.num_keys_before(approximation.approx_value);
+
+        let index = match &temperament {
+            Some(meantone) => format_it(meantone, key_map.root_key, approximation.approx_value),
+            None => format!(
+                "IDX {:>5}",
+                key_map.root_key.num_keys_before(approximation.approx_value)
+            ),
+        };
 
         printer.print_table_row(
             PianoKey::from_midi_number(item.key_midi_number),
             pitch,
             approximation.approx_value.midi_number(),
-            friendly_name(index, scale.size()),
+            index,
             approximation.deviation,
         )?;
     }
     Ok(())
+}
+
+fn format_it(temperament: &EqualTemperament, root_key: PianoKey, curr_key: PianoKey) -> String {
+    let offset = NoteLetter::D
+        .in_octave(4)
+        .as_piano_key()
+        .num_keys_before(root_key); // Diese Differenz müsste man in der Zielskala bestimmen (62 - 60) == 3 in 31 EDO
+
+    //let root_in_edo = (root_key.midi_number() % 12)
+
+    let note_in_scale = root_key.num_keys_before(curr_key) + offset;
+
+    format!(
+        "{} ({})",
+        temperament.get_heptatonic_name(note_in_scale),
+        note_in_scale
+    )
+}
+
+fn find_temperament(scale_command: &ScaleCommand) -> Option<EqualTemperament> {
+    match scale_command {
+        ScaleCommand::EqualTemperament { step_size } => {
+            Some(EqualTemperament::find().by_step_size(*step_size))
+        }
+        _ => None,
+    }
 }
 
 struct ScaleTablePrinter<W> {
