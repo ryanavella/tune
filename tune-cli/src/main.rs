@@ -289,7 +289,7 @@ fn execute_scale_command(key_map_params: KeyMapParams, command: ScaleCommand) ->
 }
 
 fn scale_iter(tuning: impl Tuning<PianoKey>) -> impl Iterator<Item = ScaleItem> {
-    (1..128).map(move |midi_number| {
+    (0..128).map(move |midi_number| {
         let piano_key = PianoKey::from_midi_number(midi_number);
         ScaleItem {
             piano_key,

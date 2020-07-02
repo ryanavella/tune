@@ -48,7 +48,7 @@ const SCALE_OCTAVE_TUNING_1_BYTE_FORMAT: u8 = 0x08;
 
 const DEVICE_ID_BROADCAST: u8 = 0x7f;
 
-const NOTE_RANGE: Range<u8> = 1..128; // Only 127 notes can be retuned in realtime single note tuning
+const NOTE_RANGE: Range<u8> = 0..128;
 const MAX_VALUE_14_BITS: f64 = (1 << 14) as f64;
 const BIT_MASK_14_BITS: i32 = (1 << 14) - 1;
 const BIT_MASK_7_BITS: i32 = (1 << 7) - 1;
@@ -92,17 +92,26 @@ impl SingleNoteTuningChangeMessage {
         };
 
         result.sysex_call.push(SYSEX_START);
-        result.sysex_call.push(SYSEX_RT);
+        result.sysex_call.push(SYSEX_NON_RT);
         result.sysex_call.push(device_id.as_u8());
         result.sysex_call.push(MIDI_TUNING_STANDARD);
-        result.sysex_call.push(SINGLE_NOTE_TUNING_CHANGE);
+        result.sysex_call.push(0x04);
+        result.sysex_call.push(0x00); // bank
         result.sysex_call.push(tuning_program);
+        result.sysex_call.extend(b"namenamenamename");
         let number_of_notes_index = result.sysex_call.len();
-        result.sysex_call.push(0); // Number of notes
+        //result.sysex_call.push(0); // Number of notes
+        let mut i = 0;
         for single_note_tuning in tuning_changes {
+            i += 1;
             result.push_tuning_change(single_note_tuning.normalized())?;
         }
-        result.sysex_call[number_of_notes_index] = result.retuned_notes.len() as u8;
+        assert_eq!(i, 128);
+        //result.sysex_call[number_of_notes_index] = result.retuned_notes.len() as u8;
+
+        let checksum = 0;
+
+        result.sysex_call.push(checksum);
         result.sysex_call.push(SYSEX_END);
 
         Ok(result)
@@ -124,6 +133,10 @@ impl SingleNoteTuningChangeMessage {
 
             self.retuned_notes.push(tuning_change);
         } else {
+            //self.sysex_call.push(0x7f);
+            //self.sysex_call.push(0x7f);
+            //self.sysex_call.push(0x7f);
+
             self.out_of_range_notes.push(tuning_change);
         }
         Ok(())
@@ -271,7 +284,7 @@ pub enum Channels<'a> {
 }
 
 fn check_source_note(source_note: u8) -> Result<u8, TuningError> {
-    if (1..128).contains(&source_note) {
+    if (0..128).contains(&source_note) {
         Ok(source_note)
     } else {
         Err(TuningError::SourceNoteOutOfRange(source_note))
