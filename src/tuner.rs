@@ -1,9 +1,13 @@
 //! Generate tuning maps to enhance the capabilities of synthesizers with limited tuning support.
 
 use crate::{
-    key::PianoKey, mts::ScaleOctaveTuning, note::Note, pitch::Pitched, ratio::Ratio, tuning::Tuning,
+    key::PianoKey, midi, midi::ChannelMessage, midi::ChannelMessageType, mts::ScaleOctaveTuning,
+    note::Note, pitch::Pitched, ratio::Ratio, tuning::Tuning,
 };
-use std::collections::{BTreeMap, HashMap, HashSet};
+use std::{
+    collections::{BTreeMap, HashMap, HashSet},
+    convert::TryFrom,
+};
 
 /// Maps [`PianoKey`]s accross multiple channels to overcome several tuning limitations.
 pub struct ChannelTuner {
@@ -35,7 +39,10 @@ impl ChannelTuner {
         for midi_number in lower_key_bound.midi_number()..upper_key_bound.midi_number() {
             let key = PianoKey::from_midi_number(midi_number);
             let pitch = tuning.pitch_of(key);
-            let nearest_note = pitch.find_in(&()).approx_value;
+            let detune_for_numerical_stability = Ratio::from_cents(0.01);
+            let nearest_note = (pitch * detune_for_numerical_stability)
+                .find_in(&())
+                .approx_value;
             keys_to_distribute_over_channels.insert(key, (nearest_note, pitch));
         }
 
@@ -112,6 +119,55 @@ impl ChannelTuner {
     /// Returns the channel and [`Note`] to be played when hitting a [`PianoKey`].
     pub fn get_channel_and_note_for_key(&self, key: PianoKey) -> Option<(usize, Note)> {
         self.key_map.get(&key).copied()
+    }
+
+    pub fn distribute_midi_message(&self, message: &ChannelMessage) -> Vec<[u8; 3]> {
+        match message.message_type {
+            ChannelMessageType::NoteOff { key, velocity } => {
+                self.polyphonic_channel_message(midi::NOTE_OFF, key, velocity)
+            }
+            ChannelMessageType::NoteOn { key, velocity } => {
+                self.polyphonic_channel_message(midi::NOTE_ON, key, velocity)
+            }
+            ChannelMessageType::PolyphonicKeyPressure { key, pressure } => {
+                self.polyphonic_channel_message(midi::POLYPHONIC_KEY_PRESSURE, key, pressure)
+            }
+            ChannelMessageType::ControlChange { controller, value } => {
+                self.monophonic_channel_message(midi::CONTROL_CHANGE, controller, value)
+            }
+            ChannelMessageType::ProgramChange { program } => {
+                self.monophonic_channel_message(midi::PROGRAM_CHANGE, program, 0)
+            }
+            ChannelMessageType::ChannelPressure { pressure } => {
+                self.monophonic_channel_message(midi::CHANNEL_PRESSURE, pressure, 0)
+            }
+            ChannelMessageType::PitchBendChange { value } => self.monophonic_channel_message(
+                midi::PITCH_BEND_CHANGE,
+                (value % 128) as u8,
+                (value / 128) as u8,
+            ),
+        }
+    }
+
+    fn polyphonic_channel_message(&self, prefix: u8, key: u8, payload: u8) -> Vec<[u8; 3]> {
+        if let Some((channel, note)) =
+            self.get_channel_and_note_for_key(PianoKey::from_midi_number(key.into()))
+        {
+            if let (Ok(channel), Ok(note)) =
+                (u8::try_from(channel), u8::try_from(note.midi_number()))
+            {
+                if channel < 16 && note < 128 {
+                    return vec![[prefix << 4 | channel, note, payload]];
+                }
+            }
+        }
+        return vec![];
+    }
+
+    fn monophonic_channel_message(&self, prefix: u8, payload1: u8, payload2: u8) -> Vec<[u8; 3]> {
+        (0..16)
+            .map(|channel| [prefix << 4 | channel, payload1, payload2])
+            .collect()
     }
 }
 

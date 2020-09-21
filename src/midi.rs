@@ -65,8 +65,6 @@ pub enum ChannelMessageType {
     PitchBendChange { value: u32 },
 }
 
-// TODO: Tuning-specific code in tuning module
-
 #[cfg(test)]
 mod tests {
     use super::*;

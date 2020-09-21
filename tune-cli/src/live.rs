@@ -6,6 +6,7 @@ use tune::{
     midi::{ChannelMessage, ChannelMessageType},
     mts::ScaleOctaveTuning,
     mts::ScaleOctaveTuningMessage,
+    tuner::ChannelTuner,
     tuning::Tuning,
 };
 
@@ -31,6 +32,50 @@ pub(crate) struct LiveOptions {
 
 impl LiveOptions {
     pub fn run(&self, _app: &mut App) -> CliResult<()> {
+        let scl = self.command.to_scl(None)?;
+        let kbm = self.key_map_params.to_kbm();
+
+        let tuning = (&scl, kbm);
+        let device_id = self.device_id.get()?;
+
+        let mut tuner = ChannelTuner::new();
+
+        let mut out_connection = midi::connect_to_out_device(self.midi_out_device)
+            .map_err(|err| format!("Could not connect to MIDI output device ({:?})", err))?;
+
+        let octave_tunings = tuner
+            .apply_octave_based_tuning(&tuning, scl.period())
+            .map_err(|err| format!("Could not apply tuning ({:?})", err))?;
+
+        // TODO: Channel bounds
+        for (octave_tuning, channel) in octave_tunings.iter().zip(0..16) {
+            let tuning_message = ScaleOctaveTuningMessage::from_scale_octave_tuning(
+                &octave_tuning,
+                channel,
+                device_id,
+            )
+            .map_err(|err| format!("Could not apply tuning ({:?})", err))?;
+
+            out_connection.send(tuning_message.sysex_bytes()).unwrap();
+        }
+
+        let conn = midi::connect_to_in_device(self.midi_in_device, move |message| {
+            if let Some(channel_message) = ChannelMessage::from_raw_message(message) {
+                for message in tuner.distribute_midi_message(&channel_message) {
+                    out_connection.send(&message).unwrap();
+                }
+            }
+        })
+        .map_err(|err| format!("Could not connect to MIDI output device ({:?})", err))?;
+
+        std::mem::forget(conn);
+
+        loop {
+            thread::sleep(Duration::from_millis(100));
+        }
+    }
+
+    pub fn run_old(&self, _app: &mut App) -> CliResult<()> {
         let scl = self.command.to_scl(None)?;
         let kbm = self.key_map_params.to_kbm();
 
