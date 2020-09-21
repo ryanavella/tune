@@ -1,5 +1,5 @@
 use crate::{midi, mts::DeviceIdArg, shared::SclCommand, App, CliResult, KbmOptions};
-use std::{thread, time::Duration};
+use std::{mem, sync::mpsc};
 use structopt::StructOpt;
 use tune::{
     key::PianoKey,
@@ -37,15 +37,22 @@ impl LiveOptions {
         let tuning = (scl, kbm);
         let device_id = self.device_id.get()?;
 
+        let (send, recv) = mpsc::channel();
+
         let mut out_connection = midi::connect_to_out_device(self.midi_out_device)
             .map_err(|err| format!("Could not connect to MIDI output device ({:?})", err))?;
         let mut octave_tuning = ScaleOctaveTuning::default();
 
         let conn = midi::connect_to_in_device(self.midi_in_device, move |message| {
+            send.send(message.to_vec()).unwrap();
+        })
+        .map_err(|err| format!("Could not connect to MIDI output device ({:?})", err))?;
+
+        for message in recv {
             if let Some(ChannelMessage {
                 channel,
                 message_type,
-            }) = ChannelMessage::from_raw_message(message)
+            }) = ChannelMessage::from_raw_message(&message)
             {
                 match message_type {
                     ChannelMessageType::NoteOff { key, velocity } => {
@@ -59,7 +66,7 @@ impl LiveOptions {
                                 .send(&midi::note_off(channel, note.midi_number() as u8, velocity))
                                 .unwrap();
                         }
-                        return;
+                        continue;
                     }
                     ChannelMessageType::NoteOn { key, velocity } => {
                         let piano_key = PianoKey::from_midi_number(key.into());
@@ -83,20 +90,17 @@ impl LiveOptions {
                                 .send(&midi::note_on(channel, note.midi_number() as u8, velocity))
                                 .unwrap();
                         }
-                        return;
+                        continue;
                     }
                     _ => {}
                 }
             }
 
-            out_connection.send(message).unwrap();
-        })
-        .map_err(|err| format!("Could not connect to MIDI output device ({:?})", err))?;
-
-        std::mem::forget(conn);
-
-        loop {
-            thread::sleep(Duration::from_millis(100));
+            out_connection.send(&message).unwrap();
         }
+
+        mem::drop(conn);
+
+        Ok(())
     }
 }
