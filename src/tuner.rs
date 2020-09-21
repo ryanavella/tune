@@ -81,34 +81,30 @@ impl ChannelTuner {
             return Err(OctaveBasedTuningError::NonOctaveTuning);
         };
 
+        let padding = period;
+
         let lowest_key = tuning
-            .find_by_pitch(Note::from_midi_number(0).pitch())
+            .find_by_pitch(Note::from_midi_number(0).pitch() / padding)
             .approx_value;
 
-        // TODO: Use the octave here
         let highest_key = tuning
-            .find_by_pitch(Note::from_midi_number(128).pitch())
+            .find_by_pitch(Note::from_midi_number(128).pitch() * padding)
             .approx_value;
 
+        let mut octave_tuning = ScaleOctaveTuning::default();
         Ok(self
             .apply_full_keyboard_tuning(tuning, lowest_key, highest_key)
             .into_iter()
             .map(|channel_tuning| {
                 // Only use the first 12 notes for the octave tuning
-                ScaleOctaveTuning {
-                    c: channel_tuning.get_detuning(0),
-                    csh: channel_tuning.get_detuning(1),
-                    d: channel_tuning.get_detuning(2),
-                    dsh: channel_tuning.get_detuning(3),
-                    e: channel_tuning.get_detuning(4),
-                    f: channel_tuning.get_detuning(5),
-                    fsh: channel_tuning.get_detuning(6),
-                    g: channel_tuning.get_detuning(7),
-                    gsh: channel_tuning.get_detuning(8),
-                    a: channel_tuning.get_detuning(9),
-                    ash: channel_tuning.get_detuning(10),
-                    b: channel_tuning.get_detuning(11),
+                for midi_number in 0..12 {
+                    let note = Note::from_midi_number(midi_number);
+                    let letter = note.letter_and_octave().0;
+                    if let Some(&detuning) = channel_tuning.tuning_map.get(&note) {
+                        *octave_tuning.as_mut(letter) = detuning;
+                    }
                 }
+                octave_tuning.clone()
             })
             .collect())
     }
@@ -143,13 +139,6 @@ impl ChannelTuning {
             }
         }
         result
-    }
-
-    fn get_detuning(&self, midi_number: i32) -> Ratio {
-        self.tuning_map
-            .get(&Note::from_midi_number(midi_number))
-            .cloned()
-            .unwrap_or_default()
     }
 }
 
